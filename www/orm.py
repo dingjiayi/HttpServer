@@ -6,7 +6,7 @@ import asyncio, logging
 import aiomysql
 
 def log(sql, args = ()):
-    logging.info('SQL: %s', % sql)
+    logging.info('SQL: %s' % sql)
 
 async def create_pool(loop, **kw):
     logging.info("create database connection pool...")
@@ -16,7 +16,7 @@ async def create_pool(loop, **kw):
         port = kw.get('port', 3306),
         user = kw['user'],
         password = kw['password'],
-        db = kw['db']
+        db = kw['db'],
         charset = kw.get('charset', 'utf8'),
         autocommit = kw.get('atuocommit', True),
         maxsize = kw.get('maxsize', 10),
@@ -24,12 +24,12 @@ async def create_pool(loop, **kw):
         loop = loop
     )
 
-async def select(sql, args, size=None):
+async def select(sql, args, size = None):
         log(sql, args)
         global __pool
         async with __pool.get() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute(sql.replace('?', '%s', args or ())
+                await cur.execute(sql.replace('?', '%s', args or ()))
             if size:
                 rs = await  cur.fetchmany(size)
             else:
@@ -38,37 +38,22 @@ async def select(sql, args, size=None):
         logging.info("rows returned: %s" % len(rs))
         return rs
 
-        # update op
-
-    @asyncio.coroutine
-
-    def execute(sql, args):
-        log(sql)
-        with(yield from __pool) as conn:
-            try:
-                cur = yield from conn.cursor()
-                yield cur.execute(sql.replace('?', '%s'), args)
-                affected = cur.rowcount
-                yield from cur.close()
-            except BaseException as e:
-                raise
-            return affected
 async def execute(sql, args):
     log(sql)
-        async with __pool.get() as coon:
+    async with __pool.get() as coon:
+        if not autocommit:
+            await conn.begit()
+        try:
+            async with conn.cursor(aiomysql.DictCursor) as cur:
+                await cur.execute(sql.replace('?', '%s'), args)
+                affected = cur.rowcount
             if not autocommit:
-                await conn.begit()
-            try:
-                async with conn.cursor(aiomysql.DictCursor) as cur:
-                    await cur.execute(sql.replace('?', '%s'), args)
-                    affected =cur.rowcount
-                if not autocommit:
-                    await conn.commit()
-            except BaseException as e:
-                if not autocommit:
-                    await conn.rollback()
-                raise
-            return affected
+                await conn.commit()
+        except BaseException as e:
+            if not autocommit:
+                await conn.rollback()
+            raise
+        return affected
 
 def create_args_string(num):
     L = []
@@ -109,7 +94,7 @@ class TextField(Field):
 class ModelMetaclass(type):
     # 清除Model类本身
     def __new__(cls, name, bases, attrs):
-        if name = 'Model':
+        if name == 'Model':
             return type.__new__(cls, name, bases, attrs)
         # 获取table名称
         tableName = attrs.get("__table__", None) or name
@@ -120,7 +105,7 @@ class ModelMetaclass(type):
         primaryKey = None
         for k, v in attrs.items():
             if isinstance(v, Field):
-                logging.info("found mapping：%s ==> %s", % (k, v))
+                logging.info("found mapping：%s ==> %s" % (k, v))
                 mappings[k] = v
                 if v.primary_key:
                 # 找到主键
@@ -129,23 +114,22 @@ class ModelMetaclass(type):
                     primaryKey = k
                 else:
                     fields.append(k)
-            if not primaryKey:
-                raise RuntimeError("Primary key not found")
-            for k in mappings.keys():
-                attrs.pop(k)
-            escaped_fields = list(map(lambda  f: '%s' % f, fields))
-            attrs['__mappings__'] = mappings #保存属性和列的映射关系
-            attrs['__table__'] = tableName
-            attrs['__primary_key__'] = primaryKey  #主键属性名
-            attrs['__fields__'] = fields #除主键外的属性名
-            # 构造默认的SELECT INSERT UPDATE 和 DELETE 语句
-            attrs['__select__'] = 'select `%s`, %s from `%s`' % (primaryKey, ','.join(escaped_fields), tableName)
-            attrs['__insert__'] = 'insert into `%s` (%s, `%s`) values(%s)' % (tableName, ','.join(escaped_fields), primaryKey, create_args_string(len(escaped_fields) +1))
-            attrs['__update__'] = 'update `%s` set %s where `%s` =?' % (
-            tableName, ','.join(map(lambda f: '`%s`=?' % mappings.get(f).name or f), fields)), primaryKey)
-            attrs['__delete__'] = 'delete from `%s` where `%s`=?' % (tableName, primaryKey)
+        if not primaryKey:
+            raise RuntimeError("Primary key not found")
+        for k in mappings.keys():
+            attrs.pop(k)
+        escaped_fields = list(map(lambda f: '%s' % f, fields))
+        attrs['__mappings__'] = mappings  # 保存属性和列的映射关系
+        attrs['__table__'] = tableName
+        attrs['__primary_key__'] = primaryKey  # 主键属性名
+        attrs['__fields__'] = fields  # 除主键外的属性名
+        # 构造默认的SELECT INSERT UPDATE 和 DELETE 语句
+        attrs['__select__'] = 'select `%s`, %s from `%s`' % (primaryKey, ','.join(escaped_fields), tableName)
+        attrs['__insert__'] = 'insert into `%s` (%s, `%s`) values(%s)' % (tableName, ','.join(escaped_fields), primaryKey, create_args_string(len(escaped_fields) + 1))
+        attrs['__update__'] = 'update `%s` set %s where `%s` =?' % (tableName, ','.join(map(lambda f: '`%s`=?' % (mappings.get(f).name or f), fields)), primaryKey)
+        attrs['__delete__'] = 'delete from `%s` where `%s`=?' % (tableName, primaryKey)
 
-            return type.__new__((cls, name, bases, attrs))
+        return type.__new__(cls, name, bases, attrs)
 
 class Model(dict, metaclass = ModelMetaclass):
     def __init__(self, **kw):
@@ -241,3 +225,11 @@ class Model(dict, metaclass = ModelMetaclass):
         rows = await execute(self.__delete__, args)
         if rows != 1:
             logging.warn('failed to remove by primary key: affected rows: %s' % rows)
+
+class User(Model):
+    __table__ = "users"
+
+    id = IntegerField(primary_key = True)
+    name = StringFiled()
+
+# user = User(id = 1, name = 'dingjiayi')
