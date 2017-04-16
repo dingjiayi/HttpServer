@@ -7,6 +7,7 @@ Models for user, blog, comment.
 __authro__ = 'dingjiayi'
 
 import time, uuid
+import asyncio
 from orm import Model
 from orm import StringField
 from orm import BooleanField
@@ -49,3 +50,10 @@ class Comment(Model):
     user_image = StringField(ddl = 'vatchar(500)')
     content = TextField()
     created_at = FloatField(default = time.time)
+
+
+async def test():
+    user = User(id = 123, name = 'name')
+    await user.save()
+
+test()
